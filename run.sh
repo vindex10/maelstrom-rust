@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export RUST_BACKTRACE=1
+
 MAELSTROM="./maelstrom/maelstrom"
 NODE="./maelstrom-rust/target/debug/maelstrom-rust"
 #NODE="test.py"
