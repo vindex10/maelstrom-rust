@@ -20,14 +20,13 @@ impl Node {
 
     pub fn main(&mut self) -> io::Result<()> {
         loop {
-            let mut buffer = String::new();
-            io::stdin().read_line(&mut buffer)?;
+            let buffer = self.read();
             let _ = self.process_request(buffer);
         }
     }
 
     fn process_request(&mut self, buffer: String) -> io::Result<()> {
-        self.log(&format!("Received: {0}", buffer));
+        self.log(&format!("Received: {0}", &buffer));
         let request: MlstReq = serde_json::from_str(&buffer)?;
         let response_body: MlstBodyResp = match request.body {
             MlstBodyReq {
@@ -69,6 +68,19 @@ impl Node {
         }
     }
 
+    fn read(&self) -> String {
+        let mut buffer = String::new();
+        io::stdin().read_line(&mut buffer).unwrap();
+        let trimlen = buffer.trim_end().len();
+        buffer.truncate(trimlen);
+        buffer
+    }
+
+    fn write(&self, msg: &str) {
+        let with_newline = format!("{}\n", msg);
+        io::stdout().write(&with_newline.into_bytes()).unwrap();
+    }
+
     fn log(&self, msg: &str) {
         let with_newline = format!("{}\n", msg);
         let _ = io::stderr().write(&with_newline.into_bytes());
@@ -80,9 +92,9 @@ impl Node {
             dest: dest_arg,
             body: body_arg,
         };
-        let str_msg = serde_json::to_string(&msg).unwrap() + "\n";
+        let str_msg = serde_json::to_string(&msg).unwrap();
         self.log(&format!("Responded: {}", str_msg));
-        let _ = io::stdout().write(&str_msg.into_bytes());
+        self.write(&str_msg);
     }
 
     fn reply(&self, req_arg: MlstReq, body_arg: MlstBodyResp) {
