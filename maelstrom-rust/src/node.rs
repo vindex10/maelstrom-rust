@@ -1,20 +1,21 @@
 use crate::proto::{
-    MlstBodyBaseReq, MlstBodyBaseResp, MlstBodyReq, MlstBodyReqEcho, MlstBodyReqInit, MlstBodyResp,
-    MlstBodyRespEcho, MlstBodyRespInit, MlstReq, MlstResp,
+    MlstBodyBaseReq, MlstBodyBaseResp, MlstBodyReq, MlstBodyReqEcho, MlstBodyReqInit,
+    MlstBodyReqTopology, MlstBodyResp, MlstBodyRespEcho, MlstBodyRespInit, MlstBodyRespTopology,
+    MlstReq, MlstResp,
 };
 use crate::types::NodeId;
 use std::io::{self, Write};
 
 pub struct Node {
     pub node_id: Option<NodeId>,
-    pub node_ids: Vec<String>,
+    pub neighbor_ids: Vec<String>,
 }
 
 impl Node {
     pub fn new() -> Self {
         Self {
             node_id: None,
-            node_ids: Vec::new(),
+            neighbor_ids: Vec::new(),
         }
     }
 
@@ -37,6 +38,10 @@ impl Node {
                 body: MlstBodyBaseReq::Echo(ref req_body),
                 ..
             } => self.process_echo(req_body),
+            MlstBodyReq {
+                body: MlstBodyBaseReq::Topology(ref req_body),
+                ..
+            } => self.process_topology(req_body),
         };
         self.reply(request, response_body);
         Ok(())
@@ -63,6 +68,23 @@ impl Node {
         };
         MlstBodyResp {
             body: MlstBodyBaseResp::Echo(resp_body),
+            msg_id: 1,
+            in_reply_to: None,
+        }
+    }
+
+    fn process_topology(&mut self, req_body: &MlstBodyReqTopology) -> MlstBodyResp {
+        self.log("TOPOLOGY");
+        let node_id = match self.node_id {
+            Some(ref v) => v,
+            _ => panic!("node_id undefined"),
+        };
+        self.neighbor_ids = req_body.topology[node_id].to_owned();
+        let resp_body = MlstBodyRespTopology {
+            msg_type: "topology_ok".to_string(),
+        };
+        MlstBodyResp {
+            body: MlstBodyBaseResp::Topology(resp_body),
             msg_id: 1,
             in_reply_to: None,
         }
