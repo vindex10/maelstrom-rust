@@ -1,92 +1,21 @@
-use crate::proto::{
-    MlstBodyBaseReq, MlstBodyBaseResp, MlstBodyReq, MlstBodyReqEcho, MlstBodyReqInit,
-    MlstBodyReqTopology, MlstBodyResp, MlstBodyRespEcho, MlstBodyRespInit, MlstBodyRespTopology,
-    MlstReq, MlstResp,
-};
-use crate::types::NodeId;
+use proto::{MlstBodyResp, MlstReq, MlstResp};
 use std::io::{self, Write};
 
-pub struct Node {
-    pub node_id: Option<NodeId>,
-    pub neighbor_ids: Vec<String>,
-}
+pub type NodeId = String;
+pub type MsgId = i64;
 
-impl Node {
-    pub fn new() -> Self {
-        Self {
-            node_id: None,
-            neighbor_ids: Vec::new(),
-        }
-    }
+pub trait Node {
+    type TMlstBodyBaseResp: Clone + serde::Serialize;
+    type TMlstBodyBaseReq;
 
-    pub fn main(&mut self) -> io::Result<()> {
+    fn get_node_id(&self) -> &NodeId;
+    fn set_node_id(&mut self, value: NodeId);
+    fn process_request(&mut self, buffer: String) -> io::Result<()>;
+
+    fn main(&mut self) -> io::Result<()> {
         loop {
             let buffer = self.read();
             let _ = self.process_request(buffer);
-        }
-    }
-
-    fn process_request(&mut self, buffer: String) -> io::Result<()> {
-        self.log(&format!("Received: {0}", &buffer));
-        let request: MlstReq = serde_json::from_str(&buffer)?;
-        let response_body: MlstBodyResp = match request.body {
-            MlstBodyReq {
-                body: MlstBodyBaseReq::Init(ref req_body),
-                ..
-            } => self.process_init(req_body),
-            MlstBodyReq {
-                body: MlstBodyBaseReq::Echo(ref req_body),
-                ..
-            } => self.process_echo(req_body),
-            MlstBodyReq {
-                body: MlstBodyBaseReq::Topology(ref req_body),
-                ..
-            } => self.process_topology(req_body),
-        };
-        self.reply(request, response_body);
-        Ok(())
-    }
-
-    fn process_init(&mut self, req_body: &MlstBodyReqInit) -> MlstBodyResp {
-        self.log("INIT");
-        self.node_id = Some(req_body.node_id.to_owned());
-        let resp_body = MlstBodyRespInit {
-            msg_type: "init_ok".to_string(),
-        };
-        MlstBodyResp {
-            body: MlstBodyBaseResp::Init(resp_body),
-            msg_id: 1,
-            in_reply_to: None,
-        }
-    }
-
-    fn process_echo(&self, req_body: &MlstBodyReqEcho) -> MlstBodyResp {
-        self.log("ECHO");
-        let resp_body = MlstBodyRespEcho {
-            msg_type: "echo_ok".to_string(),
-            echo: req_body.echo.clone(),
-        };
-        MlstBodyResp {
-            body: MlstBodyBaseResp::Echo(resp_body),
-            msg_id: 1,
-            in_reply_to: None,
-        }
-    }
-
-    fn process_topology(&mut self, req_body: &MlstBodyReqTopology) -> MlstBodyResp {
-        self.log("TOPOLOGY");
-        let node_id = match self.node_id {
-            Some(ref v) => v,
-            _ => panic!("node_id undefined"),
-        };
-        self.neighbor_ids = req_body.topology[node_id].to_owned();
-        let resp_body = MlstBodyRespTopology {
-            msg_type: "topology_ok".to_string(),
-        };
-        MlstBodyResp {
-            body: MlstBodyBaseResp::Topology(resp_body),
-            msg_id: 1,
-            in_reply_to: None,
         }
     }
 
@@ -108,9 +37,9 @@ impl Node {
         let _ = io::stderr().write(&with_newline.into_bytes());
     }
 
-    fn send(&self, dest_arg: NodeId, body_arg: MlstBodyResp) {
+    fn send(&self, dest_arg: NodeId, body_arg: MlstBodyResp<Self::TMlstBodyBaseResp>) {
         let msg = MlstResp {
-            src: self.node_id.to_owned().unwrap(),
+            src: self.get_node_id().to_owned(),
             dest: dest_arg,
             body: body_arg,
         };
@@ -119,9 +48,48 @@ impl Node {
         self.write(&str_msg);
     }
 
-    fn reply(&self, req_arg: MlstReq, body_arg: MlstBodyResp) {
+    fn reply(
+        &self,
+        req_arg: MlstReq<Self::TMlstBodyBaseReq>,
+        body_arg: MlstBodyResp<Self::TMlstBodyBaseResp>,
+    ) {
         let mut body = body_arg.to_owned();
         body.in_reply_to = Some(req_arg.body.msg_id.to_owned());
         self.send(req_arg.src, body);
+    }
+}
+
+pub mod proto {
+    use crate::node::{MsgId, NodeId};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize)]
+    pub struct MlstResp<TMlstBodyBaseResp> {
+        pub src: NodeId,
+        pub dest: NodeId,
+        pub body: MlstBodyResp<TMlstBodyBaseResp>,
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    pub struct MlstBodyResp<TMlstBodyBaseResp> {
+        #[serde(flatten)]
+        pub body: TMlstBodyBaseResp,
+        pub msg_id: MsgId,
+        pub in_reply_to: Option<MsgId>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub struct MlstBodyReq<TMlstBodyBaseReq> {
+        #[serde(flatten)]
+        pub body: TMlstBodyBaseReq,
+        pub msg_id: MsgId,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub struct MlstReq<TMlstBodyBaseReq> {
+        pub id: i64,
+        pub src: NodeId,
+        pub dest: NodeId,
+        pub body: MlstBodyReq<TMlstBodyBaseReq>,
     }
 }
