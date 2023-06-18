@@ -1,14 +1,20 @@
-use crate::node::Node;
+use crate::node::{MsgId, Node, NodeId};
 use proto::{MlstBodyReqEcho, MlstBodyRespEcho};
 
 pub trait MlstEcho: Node {
-    fn process_echo(&self, req_body: &MlstBodyReqEcho) -> MlstBodyRespEcho {
+    fn process_echo(
+        &self,
+        msg_id: Option<MsgId>,
+        src: NodeId,
+        _dest: NodeId,
+        req_body: &MlstBodyReqEcho,
+    ) {
         self.log("ECHO");
         let resp_body = MlstBodyRespEcho {
             msg_type: "echo_ok".to_string(),
             echo: req_body.echo.clone(),
         };
-        resp_body
+        self.reply(msg_id.unwrap(), src, resp_body);
     }
 }
 

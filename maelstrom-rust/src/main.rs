@@ -1,15 +1,18 @@
 mod node;
 mod routes;
 
-use crate::node::proto::{MlstBodyReq, MlstBodyResp, MlstReq};
-use crate::node::{Node, NodeId};
-use crate::routes::broadcast::proto::{MlstBodyReqTopology, MlstBodyRespTopology};
-use crate::routes::broadcast::MlstBroadcast;
+use crate::node::{MsgId, Node, NodeId};
+use crate::routes::broadcast::proto::{
+    MlstBodyReqBroadcast, MlstBodyReqRead, MlstBodyReqTopology, MlstBodyRespBroadcast,
+    MlstBodyRespRead, MlstBodyRespTopology,
+};
+use crate::routes::broadcast::{MlstBroadcast, MsgType};
 use crate::routes::echo::proto::{MlstBodyReqEcho, MlstBodyRespEcho};
 use crate::routes::echo::MlstEcho;
 use crate::routes::init::proto::{MlstBodyReqInit, MlstBodyRespInit};
 use crate::routes::init::MlstInit;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::io;
 
 fn main() -> io::Result<()> {
@@ -21,6 +24,7 @@ fn main() -> io::Result<()> {
 struct MlstService {
     pub node_id: Option<NodeId>,
     pub neighbor_ids: Vec<NodeId>,
+    pub messages: HashSet<MsgType>,
 }
 
 impl MlstService {
@@ -28,6 +32,7 @@ impl MlstService {
         Self {
             node_id: None,
             neighbor_ids: Vec::new(),
+            messages: HashSet::new(),
         }
     }
 }
@@ -39,47 +44,50 @@ impl MlstBroadcast for MlstService {
     fn set_neighbor_ids(&mut self, values: Vec<NodeId>) {
         self.neighbor_ids = values;
     }
+
+    fn get_neighbor_ids(&self) -> &Vec<NodeId> {
+        &self.neighbor_ids
+    }
+
+    fn store_message(&mut self, message: MsgType) {
+        self.messages.insert(message);
+    }
+
+    fn check_message(&mut self, message: &MsgType) -> bool {
+        self.messages.contains(message)
+    }
+
+    fn get_messages(&self) -> &HashSet<MsgType> {
+        &self.messages
+    }
 }
 
 impl Node for MlstService {
     type TMlstBodyBaseResp = MlstBodyBaseResp;
     type TMlstBodyBaseReq = MlstBodyBaseReq;
 
-    fn get_node_id(&self) -> &NodeId {
-        match self.node_id {
-            Some(ref v) => v,
-            None => panic!("node id is not defined"),
+    fn dispatch_request(
+        &mut self,
+        msg_id: Option<MsgId>,
+        src: NodeId,
+        dest: NodeId,
+        body: &Self::TMlstBodyBaseReq,
+    ) {
+        match body {
+            MlstBodyBaseReq::Init(ref body) => self.process_init(msg_id, src, dest, body),
+            MlstBodyBaseReq::Echo(ref body) => self.process_echo(msg_id, src, dest, body),
+            MlstBodyBaseReq::Topology(ref body) => self.process_topology(msg_id, src, dest, body),
+            MlstBodyBaseReq::Broadcast(ref body) => self.process_broadcast(msg_id, src, dest, body),
+            MlstBodyBaseReq::Read(ref body) => self.process_read(msg_id, src, dest, body),
         }
+    }
+
+    fn get_node_id(&self) -> Option<&NodeId> {
+        return self.node_id.as_ref();
     }
 
     fn set_node_id(&mut self, value: NodeId) {
         self.node_id = Some(value)
-    }
-
-    fn process_request(&mut self, buffer: String) -> io::Result<()> {
-        self.log(&format!("Received: {0}", &buffer));
-        let request: MlstReq<Self::TMlstBodyBaseReq> = serde_json::from_str(&buffer)?;
-        let response_body_base: Self::TMlstBodyBaseResp = match request.body {
-            MlstBodyReq {
-                body: MlstBodyBaseReq::Init(ref req_body),
-                ..
-            } => MlstBodyBaseResp::Init(self.process_init(req_body)),
-            MlstBodyReq {
-                body: MlstBodyBaseReq::Echo(ref req_body),
-                ..
-            } => MlstBodyBaseResp::Echo(self.process_echo(req_body)),
-            MlstBodyReq {
-                body: MlstBodyBaseReq::Topology(ref req_body),
-                ..
-            } => MlstBodyBaseResp::Topology(self.process_topology(req_body)),
-        };
-        let response_body = MlstBodyResp {
-            body: response_body_base,
-            msg_id: 1,
-            in_reply_to: None,
-        };
-        self.reply(request, response_body);
-        Ok(())
     }
 }
 
@@ -89,6 +97,8 @@ pub enum MlstBodyBaseResp {
     Init(MlstBodyRespInit),
     Echo(MlstBodyRespEcho),
     Topology(MlstBodyRespTopology),
+    Broadcast(MlstBodyRespBroadcast),
+    Read(MlstBodyRespRead),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -97,4 +107,6 @@ pub enum MlstBodyBaseReq {
     Init(MlstBodyReqInit),
     Echo(MlstBodyReqEcho),
     Topology(MlstBodyReqTopology),
+    Broadcast(MlstBodyReqBroadcast),
+    Read(MlstBodyReqRead),
 }

@@ -1,14 +1,20 @@
-use crate::node::Node;
+use crate::node::{MsgId, Node, NodeId};
 use proto::{MlstBodyReqInit, MlstBodyRespInit};
 
 pub trait MlstInit: Node {
-    fn process_init(&mut self, req_body: &MlstBodyReqInit) -> MlstBodyRespInit {
+    fn process_init(
+        &mut self,
+        msg_id: Option<MsgId>,
+        src: NodeId,
+        _dest: NodeId,
+        req_body: &MlstBodyReqInit,
+    ) {
         self.log("INIT");
         self.set_node_id(req_body.node_id.to_owned());
         let resp_body = MlstBodyRespInit {
             msg_type: "init_ok".to_string(),
         };
-        resp_body
+        self.reply(msg_id.unwrap(), src, resp_body);
     }
 }
 
