@@ -1,10 +1,13 @@
-use proto::{MlstBodyReq, MlstBodyResp, MlstReq, MlstResp};
 use proto::{MlstBodyComm, MlstComm};
+use proto::{MlstBodyResp, MlstReq, MlstResp};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::io::{self, Write};
 
 pub type NodeId = String;
 pub type MsgId = i64;
+pub type MsgType = i64;
+pub type MsgTypeType = String;
 
 pub trait Node {
     type TMlstBodyBaseResp: Clone + serde::Serialize;
@@ -13,40 +16,36 @@ pub trait Node {
     fn get_node_id(&self) -> Option<&NodeId>;
     fn set_node_id(&mut self, value: NodeId);
 
-    fn main(&mut self) -> io::Result<()> {
+    fn main(&mut self) {
         loop {
             let buffer = self.read();
             self.log(&("buf read: ".to_string() + &buffer));
-            let parsed = serde_json::from_str(&buffer)?;
-            let (msg_id, src, dest, body) = match parsed {
+            let parsed: MlstReq = serde_json::from_str(&buffer).unwrap();
+            let (src, dest, body_req) = match parsed {
                 MlstReq {
                     src,
                     dest,
-                    body:
-                        MlstBodyReq {
-                            body: ref body_arg,
-                            msg_id,
-                        },
+                    body: body_req,
                     ..
-                } => (msg_id, src, dest, body_arg),
+                } => (src, dest, body_req),
             };
-            self.dispatch_request(msg_id, src, dest, body);
+            let msg_id: Option<MsgId> = body_req["msg_id"].as_i64();
+            let msg_type: MsgTypeType = body_req["type"].as_str().unwrap().to_string();
+            self.dispatch_request(msg_id, msg_type, src, dest, body_req);
         }
     }
 
     fn dispatch_request(
         &mut self,
         msg_id: Option<MsgId>,
+        msg_type: MsgTypeType,
         src: NodeId,
         dest: NodeId,
-        body: &Self::TMlstBodyBaseReq,
+        body: serde_json::Value,
     );
 
     fn communicate(&self, dest: NodeId, body: impl Serialize) {
-        let body_resp = MlstBodyComm {
-            body,
-            msg_id: None,
-        };
+        let body_resp = MlstBodyComm { body, msg_id: None };
         let msg = MlstComm {
             src: self.get_node_id().unwrap().to_owned(),
             dest,
@@ -92,6 +91,16 @@ pub trait Node {
         let with_newline = format!("node {}: {}\n", node_id, msg);
         let _ = io::stderr().write(&with_newline.into_bytes());
     }
+
+    fn set_neighbor_ids(&mut self, values: Vec<NodeId>);
+
+    fn get_neighbor_ids(&self) -> &Vec<NodeId>;
+
+    fn store_message(&mut self, message: MsgType);
+
+    fn check_message(&mut self, message: &MsgType) -> bool;
+
+    fn get_messages(&self) -> &HashSet<MsgType>;
 }
 
 pub mod proto {
@@ -127,18 +136,23 @@ pub mod proto {
         pub in_reply_to: MsgId,
     }
 
-    #[derive(Serialize, Deserialize, Clone)]
-    pub struct MlstBodyReq<TMlstBodyBaseReq> {
-        #[serde(flatten)]
-        pub body: TMlstBodyBaseReq,
-        pub msg_id: Option<MsgId>,
-    }
+    // cant use flattened raw values until issue fixed: https://github.com/serde-rs/json/issues/599
+    //
+    //#[derive(Serialize, Deserialize, Clone)]
+    //pub struct MlstBodyReq {
+    //#[serde(flatten)]
+    //pub body: Box<serde_json::value::RawValue>,
+    //pub msg_id: Option<MsgId>,
+    //#[serde(rename = "type")]
+    //pub msg_type: MsgTypeType,
+    //}
 
     #[derive(Serialize, Deserialize, Clone)]
-    pub struct MlstReq<TMlstBodyBaseReq> {
+    pub struct MlstReq {
         pub id: i64,
         pub src: NodeId,
         pub dest: NodeId,
-        pub body: MlstBodyReq<TMlstBodyBaseReq>,
+        //pub body: MlstBodyReq,
+        pub body: serde_json::Value,
     }
 }

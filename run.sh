@@ -1,15 +1,18 @@
 #!/bin/bash
 
 export RUST_BACKTRACE=1
+_SCRIPT_PATH=$(readlink -f "${BASH_SOURCE:-$0}")
+SCRIPT_DIR=$(dirname "$_SCRIPT_PATH")
+SRC_DIR="$SCRIPT_DIR/maelstrom-rust"
 
-MAELSTROM="./maelstrom/maelstrom"
-NODE="./maelstrom-rust/target/debug/maelstrom-rust"
-#NODE="test.py"
+MAELSTROM="$SCRIPT_DIR/.maelstrom/maelstrom"
+NODE="$SRC_DIR/target/debug/maelstrom-rust"
 
 function run() {
     workload="$1"
     shift;
-    "$MAELSTROM" test -w "$workload" --bin "$NODE" --log-stderr --time-limit=10 "$@"
+    pushd $SRC_DIR; cargo build; popd
+    "$MAELSTROM" test -w "$workload" --bin "$NODE" --log-stderr --time-limit=20 "$@"
 }
 
 

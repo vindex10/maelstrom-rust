@@ -1,4 +1,4 @@
-use crate::node::{MsgId, Node, NodeId};
+use crate::node::{MsgId, MsgTypeType, Node, NodeId};
 use proto::{MlstBodyReqInit, MlstBodyRespInit};
 
 pub trait MlstInit: Node {
@@ -7,26 +7,26 @@ pub trait MlstInit: Node {
         msg_id: Option<MsgId>,
         src: NodeId,
         _dest: NodeId,
-        req_body: &MlstBodyReqInit,
+        body_req: serde_json::Value,
     ) {
         self.log("INIT");
+        let req_body: MlstBodyReqInit = serde_json::from_value(body_req).unwrap();
         self.set_node_id(req_body.node_id.to_owned());
         let resp_body = MlstBodyRespInit {
             msg_type: "init_ok".to_string(),
         };
         self.reply(msg_id.unwrap(), src, resp_body);
     }
+
+    fn get_route_init() -> MsgTypeType;
 }
 
 pub mod proto {
-    use crate::node::NodeId;
+    use crate::node::{MsgTypeType, NodeId};
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
     pub struct MlstBodyReqInit {
-        #[serde(rename = "type")]
-        pub msg_type: String,
         pub node_id: NodeId,
         pub node_ids: Vec<String>,
     }
@@ -34,6 +34,6 @@ pub mod proto {
     #[derive(Serialize, Deserialize, Clone)]
     pub struct MlstBodyRespInit {
         #[serde(rename = "type")]
-        pub msg_type: String,
+        pub msg_type: MsgTypeType,
     }
 }
