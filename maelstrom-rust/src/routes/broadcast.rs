@@ -1,87 +1,114 @@
-use crate::node::{MsgId, MsgTypeType, Node, NodeId};
+use crate::node::proto::MlstAckBodyReq;
+use crate::node::{CommId, MsgId, MsgTypeType, Node, NodeId};
 use proto::{
-    MlstBodyReqBroadcast, MlstBodyReqTopology, MlstBodyRespBroadcast, MlstBodyRespRead,
-    MlstBodyRespTopology,
+    MlstBodyReqBroadcast, MlstBodyReqRead, MlstBodyReqTopology, MlstBodyRespBroadcast,
+    MlstBodyRespRead, MlstBodyRespTopology,
 };
 
 pub trait MlstBroadcast: Node {
     fn process_topology(
-        &mut self,
-        msg_id: Option<MsgId>,
+        &self,
+        _comm_id: Option<CommId>,
         src: NodeId,
         _dest: NodeId,
         body_req: serde_json::Value,
     ) {
         self.log("TOPOLOGY");
         let req_body: MlstBodyReqTopology = serde_json::from_value(body_req).unwrap();
-        let node_id = self.get_node_id().unwrap();
-        self.set_neighbor_ids(req_body.topology[node_id].to_owned());
+        let node_id_lock = self.get_node_id().lock();
+        let topology = req_body.topology[node_id_lock.unwrap().as_ref().unwrap()].to_owned();
+        self.set_neighbor_ids(topology);
         let resp_body = MlstBodyRespTopology {
             msg_type: "topology_ok".to_string(),
         };
-        self.reply(msg_id.unwrap(), src, resp_body);
+        self.reply(req_body.msg_id, src, resp_body);
     }
 
     fn get_route_topology() -> MsgTypeType;
 
     fn process_broadcast(
-        &mut self,
-        msg_id: Option<MsgId>,
+        &self,
+        comm_id: Option<CommId>,
         src: NodeId,
         _dest: NodeId,
         body_req: serde_json::Value,
     ) {
         self.log("BROADCAST");
         let req_body: MlstBodyReqBroadcast = serde_json::from_value(body_req).unwrap();
+        let msg_id = &req_body.msg_id;
         let msg = req_body.message.to_owned();
         if self.check_message(&msg) {
             return;
         }
         self.store_message(msg);
-        for neighbor_id in self.get_neighbor_ids().iter() {
+        // to_owned() her is because of interprocedural conflict. can be refactored to avoid copying
+        let neighbor_ids = self.get_neighbor_ids().lock().unwrap().to_owned();
+        for neighbor_id in neighbor_ids.iter() {
             if neighbor_id == &src {
                 continue;
             };
-            self.communicate(neighbor_id.to_owned(), &req_body)
+            self.await_communicate(req_body.msg_id, neighbor_id.to_owned(), &req_body);
         }
-        if msg_id.is_none() {
+        if comm_id.is_none() {
             self.log("do not reply");
             return;
         }
-        self.log(&format!("msg_id: {}", msg_id.as_ref().unwrap()));
+        self.log(&format!("msg_id: {}", msg_id));
         let resp_body = MlstBodyRespBroadcast {
             msg_type: "broadcast_ok".to_string(),
         };
-        self.reply(msg_id.unwrap(), src, resp_body);
+        self.reply(msg_id.to_owned(), src, resp_body);
     }
 
     fn get_route_broadcast() -> MsgTypeType;
 
+    fn process_broadcast_ok(
+        &self,
+        _msg_id: Option<MsgId>,
+        _src: NodeId,
+        _dest: NodeId,
+        body_req: serde_json::Value,
+    ) {
+        self.log("BROADCAST OK");
+        let req_body: MlstAckBodyReq = serde_json::from_value(body_req).unwrap();
+        self.ack_delivered(&req_body.in_reply_to);
+    }
+
+    fn get_route_broadcast_ok() -> MsgTypeType;
+
     fn process_read(
         &self,
-        msg_id: Option<MsgId>,
+        _msg_id: Option<MsgId>,
         src: NodeId,
         _dest: NodeId,
-        _req_body_raw: serde_json::Value,
+        req_body_raw: serde_json::Value,
     ) {
         self.log("READ");
+        let req_body: MlstBodyReqRead = serde_json::from_value(req_body_raw).unwrap();
         let resp_body = MlstBodyRespRead {
             msg_type: "read_ok".to_string(),
-            messages: self.get_messages().to_owned().into_iter().collect(),
+            messages: self
+                .get_messages()
+                .lock()
+                .unwrap()
+                .to_owned()
+                .into_iter()
+                .collect(),
         };
-        self.reply(msg_id.unwrap(), src, resp_body);
+        self.reply(req_body.msg_id, src, resp_body);
     }
 
     fn get_route_read() -> MsgTypeType;
 }
 
 pub mod proto {
-    use crate::node::{MsgType, MsgTypeType, NodeId};
+    use crate::node::{MsgId, MsgType, MsgTypeType, NodeId};
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
 
     #[derive(Serialize, Deserialize)]
     pub struct MlstBodyReqTopology {
+        pub msg_id: MsgId,
         #[serde(rename = "type")]
         pub msg_type: MsgTypeType,
         pub topology: HashMap<NodeId, Vec<NodeId>>,
@@ -95,6 +122,7 @@ pub mod proto {
 
     #[derive(Serialize, Deserialize)]
     pub struct MlstBodyReqBroadcast {
+        pub msg_id: MsgId,
         #[serde(rename = "type")]
         pub msg_type: MsgTypeType,
         pub message: MsgType,
@@ -107,7 +135,9 @@ pub mod proto {
     }
 
     #[derive(Serialize, Deserialize)]
-    pub struct MlstBodyReqRead {}
+    pub struct MlstBodyReqRead {
+        pub msg_id: MsgId,
+    }
 
     #[derive(Serialize, Deserialize, Clone)]
     pub struct MlstBodyRespRead {

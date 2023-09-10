@@ -1,38 +1,53 @@
 mod node;
 mod routes;
 
-use crate::node::{MsgId, MsgType, MsgTypeType, Node, NodeId};
-use crate::routes::broadcast::proto::{
-    MlstBodyReqBroadcast, MlstBodyReqRead, MlstBodyReqTopology, MlstBodyRespBroadcast,
-    MlstBodyRespRead, MlstBodyRespTopology,
-};
+use crate::node::{CommId, MsgCached, MsgId, MsgType, MsgTypeType, Node, NodeId};
 use crate::routes::broadcast::MlstBroadcast;
-use crate::routes::echo::proto::{MlstBodyReqEcho, MlstBodyRespEcho};
 use crate::routes::echo::MlstEcho;
-use crate::routes::init::proto::{MlstBodyReqInit, MlstBodyRespInit};
 use crate::routes::init::MlstInit;
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
+use std::sync::{Arc, Mutex};
 
-fn main() -> io::Result<()> {
-    let mut service = MlstService::new();
-    let _ = service.main();
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    let service = Arc::new(MlstService::new());
+    tokio::task::spawn({
+        let s = Arc::clone(&service);
+        async move {
+            loop {
+                s.repeat_unacked();
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        }
+    });
+    let _ = tokio::task::spawn({
+        let s = Arc::clone(&service);
+        async move {
+            loop {
+                s.main();
+            }
+        }
+    }).await;
     Ok(())
 }
 
 struct MlstService {
-    pub node_id: Option<NodeId>,
-    pub neighbor_ids: Vec<NodeId>,
-    pub messages: HashSet<MsgType>,
+    pub node_id: Mutex<Option<NodeId>>,
+    pub neighbor_ids: Mutex<Vec<NodeId>>,
+    pub messages: Mutex<HashSet<MsgType>>,
+    pub next_msg_id: Mutex<MsgId>,
+    pub pending_ack_ids: Mutex<HashMap<MsgId, MsgCached>>,
 }
 
 impl MlstService {
     pub fn new() -> Self {
         Self {
-            node_id: None,
-            neighbor_ids: Vec::new(),
-            messages: HashSet::new(),
+            node_id: Mutex::new(None),
+            neighbor_ids: Mutex::new(Vec::new()),
+            messages: Mutex::new(HashSet::new()),
+            next_msg_id: Mutex::new(1),
+            pending_ack_ids: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -56,18 +71,19 @@ impl MlstBroadcast for MlstService {
         return "broadcast".to_string();
     }
 
+    fn get_route_broadcast_ok() -> MsgTypeType {
+        return "broadcast_ok".to_string();
+    }
+
     fn get_route_read() -> MsgTypeType {
         return "read".to_string();
     }
 }
 
 impl Node for MlstService {
-    type TMlstBodyBaseResp = MlstBodyBaseResp;
-    type TMlstBodyBaseReq = MlstBodyBaseReq;
-
     fn dispatch_request(
-        &mut self,
-        msg_id: Option<MsgId>,
+        &self,
+        comm_id: Option<CommId>,
         msg_type: MsgTypeType,
         src: NodeId,
         dest: NodeId,
@@ -75,60 +91,63 @@ impl Node for MlstService {
     ) {
         let msg_type_str = msg_type.as_str();
         match msg_type_str {
-            "init" => self.process_init(msg_id, src, dest, body_req),
-            "echo" => self.process_echo(msg_id, src, dest, body_req),
-            "topology" => self.process_topology(msg_id, src, dest, body_req),
-            "broadcast" => self.process_broadcast(msg_id, src, dest, body_req),
-            "read" => self.process_read(msg_id, src, dest, body_req),
+            "init" => self.process_init(comm_id, src, dest, body_req),
+            "echo" => self.process_echo(comm_id, src, dest, body_req),
+            "topology" => self.process_topology(comm_id, src, dest, body_req),
+            "broadcast" => self.process_broadcast(comm_id, src, dest, body_req),
+            "broadcast_ok" => self.process_broadcast_ok(comm_id, src, dest, body_req),
+            "read" => self.process_read(comm_id, src, dest, body_req),
             _ => panic!("Unmatched message type"),
         }
     }
 
-    fn get_node_id(&self) -> Option<&NodeId> {
-        return self.node_id.as_ref();
+    fn next_msg_id(&self) -> MsgId {
+        let mut next_msg_id = self.next_msg_id.lock().unwrap();
+        let msg_id = *next_msg_id;
+        *next_msg_id += 1;
+        msg_id
     }
 
-    fn set_node_id(&mut self, value: NodeId) {
-        self.node_id = Some(value)
+    fn get_node_id(&self) -> &Mutex<Option<NodeId>> {
+        return &self.node_id;
     }
 
-    fn set_neighbor_ids(&mut self, values: Vec<NodeId>) {
-        self.neighbor_ids = values;
+    fn set_node_id(&self, value: NodeId) {
+        *self.node_id.lock().unwrap() = Some(value)
     }
 
-    fn get_neighbor_ids(&self) -> &Vec<NodeId> {
+    fn set_neighbor_ids(&self, values: Vec<NodeId>) {
+        *self.neighbor_ids.lock().unwrap() = values;
+    }
+
+    fn get_neighbor_ids(&self) -> &Mutex<Vec<NodeId>> {
         &self.neighbor_ids
     }
 
-    fn store_message(&mut self, message: MsgType) {
-        self.messages.insert(message);
+    fn store_message(&self, message: MsgType) {
+        self.messages.lock().unwrap().insert(message);
     }
 
-    fn check_message(&mut self, message: &MsgType) -> bool {
-        self.messages.contains(message)
+    fn check_message(&self, message: &MsgType) -> bool {
+        self.messages.lock().unwrap().contains(message)
     }
 
-    fn get_messages(&self) -> &HashSet<MsgType> {
+    fn get_messages(&self) -> &Mutex<HashSet<MsgType>> {
         &self.messages
     }
-}
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(untagged)]
-pub enum MlstBodyBaseResp {
-    Init(MlstBodyRespInit),
-    Echo(MlstBodyRespEcho),
-    Topology(MlstBodyRespTopology),
-    Broadcast(MlstBodyRespBroadcast),
-    Read(MlstBodyRespRead),
-}
+    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgId, MsgCached>> {
+        &self.pending_ack_ids
+    }
 
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum MlstBodyBaseReq {
-    Init(MlstBodyReqInit),
-    Echo(MlstBodyReqEcho),
-    Topology(MlstBodyReqTopology),
-    Broadcast(MlstBodyReqBroadcast),
-    Read(MlstBodyReqRead),
+    fn ack_await(&self, msg_id: MsgId, msg_cached: MsgCached) {
+        self.pending_ack_ids
+            .lock()
+            .unwrap()
+            .insert(msg_id, msg_cached);
+    }
+
+    fn ack_delivered(&self, msg_id: &MsgId) {
+        self.pending_ack_ids.lock().unwrap().remove(msg_id);
+    }
 }
