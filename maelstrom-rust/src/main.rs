@@ -1,7 +1,7 @@
 mod node;
 mod routes;
 
-use crate::node::{CommId, MsgCached, MsgId, MsgType, MsgTypeType, Node, NodeId};
+use crate::node::{CommId, MsgCached, MsgCachedKey, MsgId, MsgType, MsgTypeType, Node, NodeId};
 use crate::routes::broadcast::MlstBroadcast;
 use crate::routes::echo::MlstEcho;
 use crate::routes::init::MlstInit;
@@ -37,7 +37,7 @@ struct MlstService {
     pub neighbor_ids: Mutex<Vec<NodeId>>,
     pub messages: Mutex<HashSet<MsgType>>,
     pub next_msg_id: Mutex<MsgId>,
-    pub pending_ack_ids: Mutex<HashMap<MsgId, MsgCached>>,
+    pub pending_ack_ids: Mutex<HashMap<MsgCachedKey, MsgCached>>,
 }
 
 impl MlstService {
@@ -136,18 +136,19 @@ impl Node for MlstService {
         &self.messages
     }
 
-    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgId, MsgCached>> {
+    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgCachedKey, MsgCached>> {
         &self.pending_ack_ids
     }
 
-    fn ack_await(&self, msg_id: MsgId, msg_cached: MsgCached) {
+    fn ack_await(&self, key: MsgCachedKey, msg_cached: MsgCached) {
         self.pending_ack_ids
             .lock()
             .unwrap()
-            .insert(msg_id, msg_cached);
+            .insert(key, msg_cached);
     }
 
-    fn ack_delivered(&self, msg_id: &MsgId) {
-        self.pending_ack_ids.lock().unwrap().remove(msg_id);
+    fn ack_delivered(&self, key: &MsgCachedKey) {
+        self.log(&format!("Delivered OK: {}", &key.msg_id));
+        self.pending_ack_ids.lock().unwrap().remove(key);
     }
 }

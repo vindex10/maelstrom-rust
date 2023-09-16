@@ -21,8 +21,13 @@ fn dummy_concat_jsons(left: String, right: String) -> String {
 
 #[derive(Clone)]
 pub struct MsgCached {
-    pub dest: NodeId,
     pub msg_str: String,
+}
+
+#[derive(Hash, Eq, PartialEq)]
+pub struct MsgCachedKey {
+    pub msg_id: MsgId,
+    pub dest: NodeId,
 }
 
 pub trait Node {
@@ -71,10 +76,10 @@ pub trait Node {
 
     fn await_communicate(&self, msg_id: MsgId, dest: NodeId, msg: impl serde::Serialize) {
         let msg_cached = MsgCached {
-            dest,
             msg_str: serde_json::to_string(&msg).unwrap(),
         };
-        self.ack_await(msg_id, msg_cached);
+        let key = MsgCachedKey { msg_id, dest };
+        self.ack_await(key, msg_cached);
     }
 
     fn reply(&self, in_reply_to: MsgId, dest: NodeId, body: impl Serialize) {
@@ -96,11 +101,11 @@ pub trait Node {
 
     fn repeat_unacked(&self) {
         let unacked = self.get_pending_ack_ids().lock().unwrap();
-        for (msg_id, msg_cached) in &*unacked {
+        for (key, msg_cached) in &*unacked {
             //let ref mut copy_msg_cached = msg_cached.clone();
             //let dest = std::mem::take(&mut copy_msg_cached.dest);
-            let dest = msg_cached.dest.to_owned();
-            let some_msg_id = Some(msg_id.to_owned());
+            let dest = key.dest.to_owned();
+            let some_msg_id = Some(key.msg_id.to_owned());
             let raw_val =
                 serde_json::value::RawValue::from_string(msg_cached.msg_str.to_owned()).unwrap();
             self.communicate(some_msg_id, dest, raw_val);
@@ -142,11 +147,11 @@ pub trait Node {
 
     fn get_messages(&self) -> &Mutex<HashSet<MsgType>>;
 
-    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgId, MsgCached>>;
+    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgCachedKey, MsgCached>>;
 
-    fn ack_await(&self, msg_id: MsgId, msg_cached: MsgCached);
+    fn ack_await(&self, key: MsgCachedKey, msg_cached: MsgCached);
 
-    fn ack_delivered(&self, msg_id: &MsgId);
+    fn ack_delivered(&self, key: &MsgCachedKey);
 }
 
 pub mod proto {

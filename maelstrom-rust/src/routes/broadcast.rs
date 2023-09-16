@@ -1,5 +1,5 @@
 use crate::node::proto::MlstAckBodyReq;
-use crate::node::{CommId, MsgId, MsgTypeType, Node, NodeId};
+use crate::node::{CommId, MsgCachedKey, MsgId, MsgTypeType, Node, NodeId};
 use proto::{
     MlstBodyReqBroadcast, MlstBodyReqRead, MlstBodyReqTopology, MlstBodyRespBroadcast,
     MlstBodyRespRead, MlstBodyRespTopology,
@@ -65,13 +65,17 @@ pub trait MlstBroadcast: Node {
     fn process_broadcast_ok(
         &self,
         _msg_id: Option<MsgId>,
-        _src: NodeId,
+        src: NodeId,
         _dest: NodeId,
         body_req: serde_json::Value,
     ) {
         self.log("BROADCAST OK");
         let req_body: MlstAckBodyReq = serde_json::from_value(body_req).unwrap();
-        self.ack_delivered(&req_body.in_reply_to);
+        let key = MsgCachedKey {
+            msg_id: req_body.in_reply_to.to_owned(),
+            dest: src,
+        };
+        self.ack_delivered(&key);
     }
 
     fn get_route_broadcast_ok() -> MsgTypeType;
