@@ -55,7 +55,7 @@ pub trait MlstBroadcast: Node {
         }
         self.log(&format!("msg_id: {}", msg_id));
         let resp_body = MlstBodyRespBroadcast {
-            msg_type: "broadcast_ok".to_string(),
+            msg_type: Self::get_route_broadcast_ok(),
         };
         self.reply(msg_id.to_owned(), src, resp_body);
     }

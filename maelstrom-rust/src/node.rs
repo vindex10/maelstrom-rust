@@ -1,4 +1,4 @@
-use proto::{MlstBodyComm, MlstComm};
+use proto::MlstComm;
 use proto::{MlstBodyResp, MlstReq, MlstResp};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -10,14 +10,6 @@ pub type MsgId = i64;
 pub type CommId = i64;
 pub type MsgType = i64;
 pub type MsgTypeType = String;
-
-fn dummy_concat_jsons(left: String, right: String) -> String {
-    let left_len = left.len();
-    let mut res = left[0..&left_len - 1].to_owned();
-    res.push_str(",");
-    res.push_str(&right[1..]);
-    res
-}
 
 #[derive(Clone)]
 pub struct MsgCached {
@@ -60,14 +52,12 @@ pub trait Node {
         body: serde_json::Value,
     );
 
-    fn communicate(&self, msg_id: Option<MsgId>, dest: NodeId, body: impl Serialize) {
-        let body_resp_tpl_str = serde_json::to_string(&MlstBodyComm { msg_id }).unwrap();
+    fn communicate(&self, dest: NodeId, body: impl Serialize) {
         let body_str = serde_json::to_string(&body).unwrap();
-        let body_resp_str = dummy_concat_jsons(body_resp_tpl_str, body_str);
         let msg = MlstComm {
             src: self.get_node_id().lock().unwrap().to_owned().unwrap(),
             dest,
-            body: serde_json::value::RawValue::from_string(body_resp_str).unwrap(),
+            body: serde_json::value::RawValue::from_string(body_str).unwrap(),
         };
         let str_msg = serde_json::to_string(&msg).unwrap();
         self.log(&format!("Responded: {}", str_msg));
@@ -105,10 +95,9 @@ pub trait Node {
             //let ref mut copy_msg_cached = msg_cached.clone();
             //let dest = std::mem::take(&mut copy_msg_cached.dest);
             let dest = key.dest.to_owned();
-            let some_msg_id = Some(key.msg_id.to_owned());
             let raw_val =
                 serde_json::value::RawValue::from_string(msg_cached.msg_str.to_owned()).unwrap();
-            self.communicate(some_msg_id, dest, raw_val);
+            self.communicate(dest, raw_val);
         }
     }
 

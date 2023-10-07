@@ -53,28 +53,34 @@ impl MlstService {
 }
 
 impl MlstInit for MlstService {
+    #[inline]
     fn get_route_init() -> MsgTypeType {
         return "init".to_string();
     }
 }
 impl MlstEcho for MlstService {
+    #[inline]
     fn get_route_echo() -> MsgTypeType {
         return "echo".to_string();
     }
 }
 impl MlstBroadcast for MlstService {
+    #[inline]
     fn get_route_topology() -> MsgTypeType {
         return "topology".to_string();
     }
 
+    #[inline]
     fn get_route_broadcast() -> MsgTypeType {
         return "broadcast".to_string();
     }
 
+    #[inline]
     fn get_route_broadcast_ok() -> MsgTypeType {
         return "broadcast_ok".to_string();
     }
 
+    #[inline]
     fn get_route_read() -> MsgTypeType {
         return "read".to_string();
     }
