@@ -1,5 +1,5 @@
 use proto::MlstComm;
-use proto::{MlstBodyResp, MlstReq, MlstResp};
+use proto::{MlstBodyResp, MlstBodyType, MlstReq};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
@@ -52,18 +52,6 @@ pub trait Node {
         body: serde_json::Value,
     );
 
-    fn communicate(&self, dest: NodeId, body: impl Serialize) {
-        let body_str = serde_json::to_string(&body).unwrap();
-        let msg = MlstComm {
-            src: self.get_node_id().lock().unwrap().to_owned().unwrap(),
-            dest,
-            body: serde_json::value::RawValue::from_string(body_str).unwrap(),
-        };
-        let str_msg = serde_json::to_string(&msg).unwrap();
-        self.log(&format!("Responded: {}", str_msg));
-        self.write(&str_msg);
-    }
-
     fn await_communicate(&self, msg_id: MsgId, dest: NodeId, msg: impl serde::Serialize) {
         let msg_cached = MsgCached {
             msg_str: serde_json::to_string(&msg).unwrap(),
@@ -79,10 +67,14 @@ pub trait Node {
             msg_id: Some(msg_id),
             in_reply_to,
         };
-        let msg = MlstResp {
+        self.communicate(dest, MlstBodyType::Resp(body_resp))
+    }
+
+    fn communicate(&self, dest: NodeId, body: MlstBodyType<impl Serialize>) {
+        let msg = MlstComm {
             src: self.get_node_id().lock().unwrap().to_owned().unwrap(),
             dest,
-            body: body_resp,
+            body,
         };
         let str_msg = serde_json::to_string(&msg).unwrap();
         self.log(&format!("Responded: {}", str_msg));
@@ -97,7 +89,7 @@ pub trait Node {
             let dest = key.dest.to_owned();
             let raw_val =
                 serde_json::value::RawValue::from_string(msg_cached.msg_str.to_owned()).unwrap();
-            self.communicate(dest, raw_val);
+            self.communicate(dest, MlstBodyType::<u8>::Comm(raw_val));
         }
     }
 
@@ -148,17 +140,17 @@ pub mod proto {
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
-    pub struct MlstComm {
-        pub src: NodeId,
-        pub dest: NodeId,
-        pub body: Box<serde_json::value::RawValue>,
+    #[serde(untagged)]
+    pub enum MlstBodyType<T> {
+        Resp(MlstBodyResp<T>),
+        Comm(Box<serde_json::value::RawValue>),
     }
 
     #[derive(Serialize, Deserialize)]
-    pub struct MlstResp<TMlstBodyBaseResp> {
+    pub struct MlstComm<T> {
         pub src: NodeId,
         pub dest: NodeId,
-        pub body: MlstBodyResp<TMlstBodyBaseResp>,
+        pub body: MlstBodyType<T>,
     }
 
     #[derive(Serialize, Deserialize, Clone)]
