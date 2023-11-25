@@ -1,7 +1,7 @@
 use proto::MlstComm;
 use proto::{MlstBodyResp, MlstBodyType, MlstReq};
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::sync::Mutex;
 
@@ -10,17 +10,6 @@ pub type MsgId = i64;
 pub type CommId = i64;
 pub type MsgType = i64;
 pub type MsgTypeType = String;
-
-#[derive(Clone)]
-pub struct MsgCached {
-    pub msg_str: String,
-}
-
-#[derive(Hash, Eq, PartialEq)]
-pub struct MsgCachedKey {
-    pub msg_id: MsgId,
-    pub dest: NodeId,
-}
 
 pub trait Node {
     fn get_node_id(&self) -> &Mutex<Option<NodeId>>;
@@ -41,23 +30,6 @@ pub trait Node {
         };
         let msg_type: MsgTypeType = body_req["type"].as_str().unwrap().to_string();
         self.dispatch_request(comm_id, msg_type, src, dest, body_req)
-    }
-
-    fn dispatch_request(
-        &self,
-        comm_id: Option<CommId>,
-        msg_type: MsgTypeType,
-        src: NodeId,
-        dest: NodeId,
-        body: serde_json::Value,
-    );
-
-    fn await_communicate(&self, msg_id: MsgId, dest: NodeId, msg: impl serde::Serialize) {
-        let msg_cached = MsgCached {
-            msg_str: serde_json::to_string(&msg).unwrap(),
-        };
-        let key = MsgCachedKey { msg_id, dest };
-        self.ack_await(key, msg_cached);
     }
 
     fn reply(&self, in_reply_to: MsgId, dest: NodeId, body: impl Serialize) {
@@ -81,18 +53,6 @@ pub trait Node {
         self.write(&str_msg);
     }
 
-    fn repeat_unacked(&self) {
-        let unacked = self.get_pending_ack_ids().lock().unwrap();
-        for (key, msg_cached) in &*unacked {
-            //let ref mut copy_msg_cached = msg_cached.clone();
-            //let dest = std::mem::take(&mut copy_msg_cached.dest);
-            let dest = key.dest.to_owned();
-            let raw_val =
-                serde_json::value::RawValue::from_string(msg_cached.msg_str.to_owned()).unwrap();
-            self.communicate(dest, MlstBodyType::<u8>::Comm(raw_val));
-        }
-    }
-
     fn read(&self) -> String {
         let mut buffer = String::new();
         io::stdin().read_line(&mut buffer).unwrap();
@@ -100,6 +60,15 @@ pub trait Node {
         buffer.truncate(trimlen);
         buffer
     }
+
+    fn dispatch_request(
+        &self,
+        comm_id: Option<CommId>,
+        msg_type: MsgTypeType,
+        src: NodeId,
+        dest: NodeId,
+        body: serde_json::Value,
+    );
 
     fn write(&self, msg: &str) {
         let with_newline = format!("{}\n", msg);
@@ -127,12 +96,6 @@ pub trait Node {
     fn check_message(&self, message: &MsgType) -> bool;
 
     fn get_messages(&self) -> &Mutex<HashSet<MsgType>>;
-
-    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgCachedKey, MsgCached>>;
-
-    fn ack_await(&self, key: MsgCachedKey, msg_cached: MsgCached);
-
-    fn ack_delivered(&self, key: &MsgCachedKey);
 }
 
 pub mod proto {

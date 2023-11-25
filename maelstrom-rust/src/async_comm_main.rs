@@ -1,7 +1,9 @@
 mod node;
+mod async_comm_node;
 mod routes;
 
-use crate::node::{CommId, MsgCached, MsgCachedKey, MsgId, MsgType, MsgTypeType, Node, NodeId};
+use crate::node::{CommId, MsgId, MsgType, MsgTypeType, Node, NodeId};
+use crate::async_comm_node::{AsyncCommNode, MsgCached, MsgCachedKey};
 use crate::routes::broadcast::MlstBroadcast;
 use crate::routes::echo::MlstEcho;
 use crate::routes::init::MlstInit;
@@ -58,6 +60,7 @@ impl MlstInit for MlstService {
         return "init".to_string();
     }
 }
+
 impl MlstEcho for MlstService {
     #[inline]
     fn get_route_echo() -> MsgTypeType {
@@ -83,6 +86,24 @@ impl MlstBroadcast for MlstService {
     #[inline]
     fn get_route_read() -> MsgTypeType {
         return "read".to_string();
+    }
+}
+
+impl AsyncCommNode for MlstService {
+    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgCachedKey, MsgCached>> {
+        &self.pending_ack_ids
+    }
+
+    fn ack_await(&self, key: MsgCachedKey, msg_cached: MsgCached) {
+        self.pending_ack_ids
+            .lock()
+            .unwrap()
+            .insert(key, msg_cached);
+    }
+
+    fn ack_delivered(&self, key: &MsgCachedKey) {
+        self.log(&format!("Delivered OK: {}", &key.msg_id));
+        self.pending_ack_ids.lock().unwrap().remove(key);
     }
 }
 
@@ -140,21 +161,5 @@ impl Node for MlstService {
 
     fn get_messages(&self) -> &Mutex<HashSet<MsgType>> {
         &self.messages
-    }
-
-    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgCachedKey, MsgCached>> {
-        &self.pending_ack_ids
-    }
-
-    fn ack_await(&self, key: MsgCachedKey, msg_cached: MsgCached) {
-        self.pending_ack_ids
-            .lock()
-            .unwrap()
-            .insert(key, msg_cached);
-    }
-
-    fn ack_delivered(&self, key: &MsgCachedKey) {
-        self.log(&format!("Delivered OK: {}", &key.msg_id));
-        self.pending_ack_ids.lock().unwrap().remove(key);
     }
 }

@@ -3,6 +3,15 @@ name = "maelstrom-rust"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "async-comm-service"
+path = "src/async_comm_main.rs"
+
+[[bin]]
+name = "crdt-service"
+path = "src/crdt_main.rs"
+
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

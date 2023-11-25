@@ -1,11 +1,12 @@
+use crate::async_comm_node::{AsyncCommNode, MsgCachedKey};
 use crate::node::proto::MlstAckBodyReq;
-use crate::node::{CommId, MsgCachedKey, MsgId, MsgTypeType, Node, NodeId};
+use crate::node::{CommId, MsgId, MsgTypeType, NodeId};
 use proto::{
     MlstBodyReqBroadcast, MlstBodyReqRead, MlstBodyReqTopology, MlstBodyRespBroadcast,
     MlstBodyRespRead, MlstBodyRespTopology,
 };
 
-pub trait MlstBroadcast: Node {
+pub trait MlstBroadcast: AsyncCommNode {
     fn process_topology(
         &self,
         _comm_id: Option<CommId>,
