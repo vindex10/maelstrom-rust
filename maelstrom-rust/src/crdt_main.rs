@@ -1,13 +1,21 @@
 mod node;
-mod async_comm_node;
-mod routes;
+mod crdt_node;
+mod routes {
+    pub mod read;
+    pub mod topology;
+    pub mod replicate;
+    pub mod echo;
+    pub mod init;
+}
 
 use crate::node::{CommId, MsgId, MsgType, MsgTypeType, Node, NodeId};
-use crate::async_comm_node::{AsyncCommNode, MsgCached, MsgCachedKey};
-use crate::routes::broadcast::MlstBroadcast;
+use crate::crdt_node::CrdtNode;
+use crate::routes::replicate::MlstReplicate;
+use crate::routes::read::MlstRead;
+use crate::routes::topology::MlstTopology;
 use crate::routes::echo::MlstEcho;
 use crate::routes::init::MlstInit;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io;
 use std::sync::{Arc, Mutex};
 
@@ -18,8 +26,8 @@ async fn main() -> io::Result<()> {
         let s = Arc::clone(&service);
         async move {
             loop {
-                s.repeat_unacked();
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                s.broadcast();
+                tokio::time::sleep(tokio::time::Duration::from_millis(4999)).await;
             }
         }
     });
@@ -39,7 +47,6 @@ struct MlstService {
     pub neighbor_ids: Mutex<Vec<NodeId>>,
     pub messages: Mutex<HashSet<MsgType>>,
     pub next_msg_id: Mutex<MsgId>,
-    pub pending_ack_ids: Mutex<HashMap<MsgCachedKey, MsgCached>>,
 }
 
 impl MlstService {
@@ -49,9 +56,10 @@ impl MlstService {
             neighbor_ids: Mutex::new(Vec::new()),
             messages: Mutex::new(HashSet::new()),
             next_msg_id: Mutex::new(1),
-            pending_ack_ids: Mutex::new(HashMap::new()),
         }
     }
+}
+impl CrdtNode for MlstService {
 }
 
 impl MlstInit for MlstService {
@@ -67,43 +75,25 @@ impl MlstEcho for MlstService {
         return "echo".to_string();
     }
 }
-impl MlstBroadcast for MlstService {
+
+impl MlstTopology for MlstService {
     #[inline]
     fn get_route_topology() -> MsgTypeType {
         return "topology".to_string();
     }
+}
 
-    #[inline]
-    fn get_route_broadcast() -> MsgTypeType {
-        return "broadcast".to_string();
-    }
-
-    #[inline]
-    fn get_route_broadcast_ok() -> MsgTypeType {
-        return "broadcast_ok".to_string();
-    }
-
+impl MlstRead for MlstService {
     #[inline]
     fn get_route_read() -> MsgTypeType {
         return "read".to_string();
     }
 }
 
-impl AsyncCommNode for MlstService {
-    fn get_pending_ack_ids(&self) -> &Mutex<HashMap<MsgCachedKey, MsgCached>> {
-        &self.pending_ack_ids
-    }
-
-    fn ack_await(&self, key: MsgCachedKey, msg_cached: MsgCached) {
-        self.pending_ack_ids
-            .lock()
-            .unwrap()
-            .insert(key, msg_cached);
-    }
-
-    fn ack_delivered(&self, key: &MsgCachedKey) {
-        self.log(&format!("Delivered OK: {}", &key.msg_id));
-        self.pending_ack_ids.lock().unwrap().remove(key);
+impl MlstReplicate for MlstService {
+    #[inline]
+    fn get_route_replicate() -> MsgTypeType {
+        return "replicate".to_string();
     }
 }
 
@@ -121,9 +111,8 @@ impl Node for MlstService {
             "init" => self.process_init(comm_id, src, dest, body_req),
             "echo" => self.process_echo(comm_id, src, dest, body_req),
             "topology" => self.process_topology(comm_id, src, dest, body_req),
-            "broadcast" => self.process_broadcast(comm_id, src, dest, body_req),
-            "broadcast_ok" => self.process_broadcast_ok(comm_id, src, dest, body_req),
             "read" => self.process_read(comm_id, src, dest, body_req),
+            "replicate" => self.process_replicate(comm_id, src, dest, body_req),
             _ => panic!("Unmatched message type"),
         }
     }

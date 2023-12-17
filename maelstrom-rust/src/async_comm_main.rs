@@ -1,9 +1,17 @@
 mod node;
 mod async_comm_node;
-mod routes;
+mod routes {
+    pub mod read;
+    pub mod topology;
+    pub mod broadcast;
+    pub mod echo;
+    pub mod init;
+}
 
 use crate::node::{CommId, MsgId, MsgType, MsgTypeType, Node, NodeId};
 use crate::async_comm_node::{AsyncCommNode, MsgCached, MsgCachedKey};
+use crate::routes::read::MlstRead;
+use crate::routes::topology::MlstTopology;
 use crate::routes::broadcast::MlstBroadcast;
 use crate::routes::echo::MlstEcho;
 use crate::routes::init::MlstInit;
@@ -67,12 +75,22 @@ impl MlstEcho for MlstService {
         return "echo".to_string();
     }
 }
-impl MlstBroadcast for MlstService {
+
+impl MlstTopology for MlstService {
     #[inline]
     fn get_route_topology() -> MsgTypeType {
         return "topology".to_string();
     }
+}
 
+impl MlstRead for MlstService {
+    #[inline]
+    fn get_route_read() -> MsgTypeType {
+        return "read".to_string();
+    }
+}
+
+impl MlstBroadcast for MlstService {
     #[inline]
     fn get_route_broadcast() -> MsgTypeType {
         return "broadcast".to_string();
@@ -81,11 +99,6 @@ impl MlstBroadcast for MlstService {
     #[inline]
     fn get_route_broadcast_ok() -> MsgTypeType {
         return "broadcast_ok".to_string();
-    }
-
-    #[inline]
-    fn get_route_read() -> MsgTypeType {
-        return "read".to_string();
     }
 }
 
